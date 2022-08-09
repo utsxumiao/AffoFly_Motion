@@ -8,6 +8,8 @@
  - 330R x5
  - Piezo Buzzer (active 5V)
  - Joystick (a good quality one without spring in throttle)
+ - Switch (power and aux channels)
+ - Potentiometer Knob
  - NRF24L+ PA with antena
  - 3.3V Voltage Regulator (eg. HC7333A or AMS1117)
  - Electrolytic Capacitor 10uf
