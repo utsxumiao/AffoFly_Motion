@@ -1,0 +1,482 @@
+#include <Wire.h>
+#include <SPI.h>
+#include <nRF24L01.h>
+#include <RF24.h>
+#include <Shifty.h>
+#include "printf.h"
+#include "ppm.h"
+#include "PPMEncoder.h"
+#include "I2Cdev.h"
+#include "MPU6050_6Axis_MotionApps20.h"
+#include "types.h"
+#include "config.h"
+#include "Transmitter.h"
+
+
+RF24 radio(NRF_CE_PIN, NRF_CSN_PIN);
+MPU6050 mpu;
+ControlData controlData;
+Shifty shift;
+
+uint16_t relayCount = 0;
+uint16_t mpuCount = 0;
+uint16_t controllerCount = 0;
+uint16_t radioCount = 0;
+uint16_t loopCount = 0;
+
+const uint16_t relayDataFetchInterval = 2000; //500hz
+uint32_t previousRelayDataFetchMicros = 0;
+const uint16_t mpuDataFetchInterval = 4000; //250hz
+uint32_t previousMpuDataFetchMicros = 0;
+const uint16_t controllerDataFetchInterval = 5000; //200hz
+uint32_t previousControllerDataFetchMicros = 0;
+const uint16_t radioSendInterval = 2000; //500hz
+uint32_t previousRadioSendMicros = 0;
+const uint32_t performanceReportInterval = 1000000; //1hz
+uint32_t previousPerformanceReportMicros = 0;
+const uint32_t voltageCheckInterval = 1000000; //1hz
+uint32_t previousVoltageCheckMicros = 0;
+
+int16_t joystickOffsetThrottle = 0;
+int16_t joystickOffsetYaw = 0;
+
+//GYRO
+bool dmpReady = false;  // set true if DMP init was successful
+uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
+uint8_t devStatus;      // return status after each device operation (0 = success, !0 = error)
+uint16_t packetSize;    // expected DMP packet size (default is 42 bytes)
+uint16_t fifoCount;     // count of all bytes currently in FIFO
+uint8_t fifoBuffer[64]; // FIFO storage buffer
+VectorFloat gravity;    // [x, y, z]            gravity vector
+Quaternion q;           // [w, x, y, z]         quaternion container
+float euler[3];         // [psi, theta, phi]    Euler angle container
+float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
+volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
+void dmpDataReady() {
+  mpuInterrupt = true;
+}
+
+void setup() {
+  ADCSRA = (ADCSRA & 0xf8) | 0x04;  // set 16 times division to make analogRead faster
+#if defined(DEBUG) || defined(PERFORMANCE)
+  Serial.begin(115200);
+#endif
+#ifdef DEBUG
+  Serial.println("System started");
+#endif
+  initPins();
+  initRadio();
+  initData();
+  initShiftRegister();
+  initBatteryVoltage();
+  if (digitalRead(RELAY_ENABLE_PIN) == 1) {
+    initMpu();
+    calibrateJoystick();
+  } else {
+    initPpmInput();
+  }
+  ppmEncoder.begin(PPM_OUTPUT_PIN);
+#ifdef DEBUG
+  Serial.println("System ready");
+#endif
+}
+
+void loop() {
+  uint32_t currentTime = micros();
+  if (digitalRead(RELAY_ENABLE_PIN) == 0) {
+    if (currentTime - previousRelayDataFetchMicros >= relayDataFetchInterval) {
+      previousRelayDataFetchMicros = currentTime;
+      getRelayData();
+      relayCount++;
+    }
+  } else {
+    if (currentTime - previousMpuDataFetchMicros >= mpuDataFetchInterval) {
+      previousMpuDataFetchMicros = currentTime;
+      getMpuData();
+      mpuCount++;
+    }
+
+    if (currentTime - previousControllerDataFetchMicros >= controllerDataFetchInterval) {
+      previousControllerDataFetchMicros = currentTime;
+      getControllerData();
+      controllerCount++;
+    }
+  }
+  
+  if (currentTime - previousRadioSendMicros >= radioSendInterval) {
+    previousRadioSendMicros = currentTime;
+    radioOutput();
+    radioCount++;
+  }
+
+  if (currentTime - previousVoltageCheckMicros >= voltageCheckInterval) {
+    previousVoltageCheckMicros = currentTime;
+    checkBatteryVoltage();
+  }
+  
+  ppmOutput();
+  srOutput();
+
+  if (currentTime - previousPerformanceReportMicros >= performanceReportInterval) {
+    previousPerformanceReportMicros = currentTime;
+    reportPerformance();
+  }
+
+  loopCount++;
+}
+
+void initPins() {
+#ifdef DEBUG
+  Serial.print("Initialising PINs......");
+#endif
+  pinMode(MPU_INTERRUPT_PIN, INPUT);
+  pinMode(RELAY_ENABLE_PIN, INPUT_PULLUP);
+  pinMode(BATTERY_VOLTAGE_PIN, INPUT);
+  pinMode(AUX1_PIN, INPUT_PULLUP);
+  pinMode(AUX2_PIN, INPUT);
+  pinMode(AUX3_PIN, INPUT);
+  pinMode(AUX4_PIN, INPUT);
+#ifdef DEBUG
+  Serial.println("Done");
+#endif
+}
+
+void initMpu() {
+#ifdef DEBUG
+  Serial.print("Initialising MPU......");
+#endif
+  Wire.begin();
+  Wire.setClock(400000);
+  mpu.initialize();
+
+#ifdef DEBUG
+  Serial.println(mpu.testConnection() ? F("successful") : F("failed"));
+#endif
+  // load and configure the DMP
+#ifdef DEBUG
+  Serial.println(F("Initializing DMP..."));
+#endif
+  devStatus = mpu.dmpInitialize();
+
+  // supply your own gyro offsets here, scaled for min sensitivity
+  mpu.setXGyroOffset(220);
+  mpu.setYGyroOffset(76);
+  mpu.setZGyroOffset(-85);
+  mpu.setZAccelOffset(1788); // 1688 factory default for my test chip
+
+  // make sure it worked (returns 0 if so)
+  if (devStatus == 0) {
+    mpu.CalibrateAccel(6);
+    mpu.CalibrateGyro(6);
+    mpu.PrintActiveOffsets();
+    // turn on the DMP, now that it's ready
+#ifdef DEBUG
+    Serial.println(F("Enabling DMP..."));
+#endif
+    mpu.setDMPEnabled(true);
+
+    // enable Arduino interrupt detection
+#ifdef DEBUG
+    Serial.println(F("Enabling interrupt detection (Arduino external interrupt 0)..."));
+#endif
+    attachInterrupt(digitalPinToInterrupt(MPU_INTERRUPT_PIN), dmpDataReady, RISING);
+    mpuIntStatus = mpu.getIntStatus();
+
+    // set our DMP Ready flag so the main loop() function knows it's okay to use it
+#ifdef DEBUG
+    Serial.println(F("DMP ready! Waiting for first interrupt..."));
+#endif
+    dmpReady = true;
+
+    // get expected DMP packet size for later comparison
+    packetSize = mpu.dmpGetFIFOPacketSize();
+#ifdef DEBUG
+    Serial.print("DMP package size: ");   Serial.println(packetSize);
+#endif
+  } else {
+    // ERROR!
+    // 1 = initial memory load failed
+    // 2 = DMP configuration updates failed
+    // (if it's going to break, usually the code will be 1)
+#ifdef DEBUG
+    Serial.print(F("DMP Initialization failed (code "));
+    Serial.print(devStatus);
+    Serial.println(F(")"));
+#endif
+  }
+#ifdef DEBUG
+  Serial.println("Done");
+#endif
+}
+
+void initRadio() {
+#ifdef DEBUG
+  Serial.print("Initialising Radio......");
+#endif
+  radio.begin();
+  radio.setPALevel(RF24_PA_MAX);
+  radio.setAutoAck(false);
+  radio.setChannel(RADIO_CHANNEL);
+  radio.setDataRate(RF24_250KBPS);
+  radio.openWritingPipe(RADIO_PIPE);
+  radio.startListening();
+  radio.stopListening();
+#ifdef DEBUG
+  radio.printDetails();
+  Serial.println("");
+#endif
+}
+
+void initData() {
+#ifdef DEBUG
+  Serial.print("Initialising system data......");
+#endif
+  controlData.Token = RADIO_SECURITY_TOKEN;
+  controlData.Throttle = 1000;
+  controlData.Yaw = 1500;
+  controlData.Pitch = 1500;
+  controlData.Roll = 1500;
+  controlData.Aux1 = 1000;
+  controlData.Aux2 = 1000;
+  controlData.Aux3 = 1000;
+  controlData.Aux4 = 1000;
+
+  //  pitch_roll_angle_factor = 1 / (1000000 / controllerDataFetchInterval * 65.5);
+  //  yaw_angle_factor = pitch_roll_angle_factor * (3.14159 / 180);
+#ifdef DEBUG
+  //  Serial.print("pr:"); Serial.print(pitch_roll_angle_factor); Serial.print("   "); Serial.print("y:"); Serial.println(yaw_angle_factor);
+  Serial.println("Done");
+#endif
+}
+
+void initPpmInput() {
+#ifdef DEBUG
+  Serial.print("Initialising system data......");
+#endif
+  ppm.begin(RELAY_DATA_PIN, false);
+#ifdef DEBUG
+  Serial.println("Done");
+#endif
+}
+
+void initShiftRegister() {
+#ifdef DEBUG
+  Serial.print("Initialising shift register......");
+#endif
+  shift.setBitCount(8);
+  shift.setPins(SR_DATA_PIN, SR_LATCH_PIN, SR_CLOCK_PIN);
+#ifdef DEBUG
+  Serial.println("Done");
+#endif
+}
+
+void initBatteryVoltage() {
+  analogReference(INTERNAL);
+  // dummy reading to saturate analog pin so next reading can be correct
+  analogRead(BATTERY_VOLTAGE_PIN); 
+}
+
+void getRelayData() {
+  controlData.Throttle  = ppm.read_channel(3);
+  controlData.Yaw       = ppm.read_channel(4);
+  controlData.Pitch     = ppm.read_channel(2);
+  controlData.Roll      = ppm.read_channel(1);
+  controlData.Aux1      = ppm.read_channel(5);
+  controlData.Aux2      = ppm.read_channel(6);
+  controlData.Aux3      = ppm.read_channel(7);
+  controlData.Aux4      = ppm.read_channel(8);
+#ifdef DEBUG
+  Serial.print("THR: ");  Serial.print(controlData.Throttle);   Serial.print("  ");
+  Serial.print("YAW: ");  Serial.print(controlData.Yaw);        Serial.print("  ");
+  Serial.print("PIT: ");  Serial.print(controlData.Pitch);      Serial.print("  ");
+  Serial.print("ROL: ");  Serial.print(controlData.Roll);       Serial.print("  ");
+  Serial.print("AUX1: "); Serial.print(controlData.Aux1);       Serial.print("  ");
+  Serial.print("AUX2: "); Serial.print(controlData.Aux2);       Serial.print("  ");
+  Serial.print("AUX3: "); Serial.print(controlData.Aux3);       Serial.print("  ");
+  Serial.print("AUX4: "); Serial.print(controlData.Aux4);       Serial.print("  ");
+  Serial.println();
+#endif
+}
+
+void getControllerData() {
+  int16_t throttle = getJoystickValue(JOYSTICK_THROTTLE_PIN, JOYS_VAL_SAMPLE_COUNT, JOYS_VAL_SAMPLE_ELIMI) - joystickOffsetThrottle;
+  if (throttle < 0) {
+    throttle = 0;
+  }
+  uint16_t yaw = getJoystickValue(JOYSTICK_YAW_PIN, JOYS_VAL_SAMPLE_COUNT, JOYS_VAL_SAMPLE_ELIMI) - joystickOffsetYaw;
+  controlData.Throttle  = mapContollerValue(throttle, 0, (1023 - joystickOffsetThrottle) / 2, 1023 - joystickOffsetThrottle, false);
+  controlData.Yaw       = mapContollerValue(yaw, 0, (1023 - joystickOffsetYaw) / 2, 1023 - joystickOffsetYaw, true);
+  controlData.Aux1      = mapContollerValue(digitalRead(AUX1_PIN) * 1023, 0, 511, 1023, false);
+  controlData.Aux2      = mapContollerValue(digitalRead(AUX2_PIN) * 1023, 0, 511, 1023, false);
+  controlData.Aux3      = mapContollerValue(analogRead(AUX3_PIN), 0, 511, 1023, false);
+  controlData.Aux4      = mapContollerValue(analogRead(AUX4_PIN), 0, 511, 1023, false);
+
+  //  controlData.Throttle  = 1100;
+  //  controlData.Yaw       = 1200;
+  //  controlData.Aux1      = 1300;
+  //  controlData.Aux2      = 1400;
+  //  controlData.Aux3      = 1500;
+  //  controlData.Aux4      = 1600;
+  //  controlData.Pitch     = 1700;
+#ifdef DEBUG
+    Serial.print("Throttle: ");     Serial.print(controlData.Throttle);   Serial.print("    ");
+    Serial.print("Yaw: ");          Serial.print(controlData.Yaw);        Serial.print("    ");
+    Serial.print("Pitch: ");        Serial.print(controlData.Pitch);      Serial.print("    ");
+    Serial.print("Roll: ");         Serial.print(controlData.Roll);       Serial.print("    ");
+    Serial.print("Aux1: ");         Serial.print(controlData.Aux1);       Serial.print("    ");
+    Serial.print("Aux2: ");         Serial.print(controlData.Aux2);       Serial.print("    ");
+    Serial.print("Aux3: ");         Serial.print(controlData.Aux3);       Serial.print("    ");
+    Serial.print("Aux4: ");         Serial.print(controlData.Aux4);       Serial.print("    ");
+    Serial.println("");
+#endif
+}
+
+uint16_t getJoystickValue(uint8_t pin, uint8_t sampleCount, uint8_t eliminator) {
+  uint16_t result = 0;
+  uint16_t values[sampleCount];
+
+  for (uint8_t i = 0; i < sampleCount; i++) {
+    values[i] = analogRead(pin);
+  }
+  sort(values, sampleCount);
+  for (uint8_t i = eliminator; i < sampleCount - eliminator; i++) {
+    result += values[i];
+  }
+  result /= sampleCount - (eliminator * 2);
+  return result;
+}
+
+void calibrateJoystick() {
+#ifdef DEBUG
+  Serial.print("Calibrating Joystick......");
+#endif
+  joystickOffsetThrottle = getJoystickValue(JOYSTICK_THROTTLE_PIN, JOYS_CAL_SAMPLE_COUNT, JOYS_CAL_SAMPLE_ELIMI);
+  joystickOffsetYaw = getJoystickValue(JOYSTICK_YAW_PIN, JOYS_CAL_SAMPLE_COUNT, JOYS_CAL_SAMPLE_ELIMI) - 511;
+#ifdef DEBUG
+  Serial.print("Thr: ");  Serial.print(joystickOffsetThrottle);   Serial.print("  ");
+  Serial.print("Yaw: ");  Serial.print(joystickOffsetYaw);      Serial.print("  ");
+  Serial.println("Done");
+#endif
+}
+
+uint16_t mapContollerValue(uint16_t val, uint16_t lower, uint16_t middle, uint16_t upper, bool reverse) {
+  val = constrain(val, lower, upper);
+  if (val < middle) val = map(val, lower, middle, 1000, 1500);
+  else val = map(val, middle, upper, 1500, 2000);
+  return reverse ? 3000 - val : val;
+}
+
+void getMpuData() {
+  getMpuValue();
+  // 180 / M_PI = 57.3
+  controlData.Roll = mapMpuValue(ypr[1] * 57.3, -45, 0, 45, false);
+  controlData.Pitch = mapMpuValue(ypr[2] * 57.3, -45, 0, 45, false);
+#ifdef DEBUG
+//  Serial.print("Pitch: ");        Serial.print(controlData.Pitch);      Serial.print("    ");
+//  Serial.print("Roll: ");         Serial.print(controlData.Roll);       Serial.print("    ");
+#endif
+}
+
+void getMpuValue() {
+  // if programming failed, don't try to do anything
+  if (!dmpReady) return;
+
+  // read a packet from FIFO
+  if (mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) {
+    mpu.dmpGetQuaternion(&q, fifoBuffer);
+    mpu.dmpGetGravity(&gravity, &q);
+    mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+  }
+#ifdef DEBUG
+//    Serial.print("ypr\t");
+//    Serial.print(ypr[0] * 180 / M_PI);
+//    Serial.print("\t");
+//    Serial.print(ypr[1] * 180 / M_PI);
+//    Serial.print("\t");
+//    Serial.println(ypr[2] * 180 / M_PI);
+#endif
+}
+
+uint16_t mapMpuValue(float val, int8_t lower, int8_t middle, int8_t upper, bool reverse) {
+  val = constrain(val, lower, upper);
+  if (val < middle) val = map(val, lower, middle, 1500 - GYRO_LIMIT, 1500);
+  else val = map(val, middle, upper, 1500, 1500 + GYRO_LIMIT);
+  return reverse ? 3000 - val : val;
+}
+
+void checkBatteryVoltage() {
+  // AREF(1.1v) / 1024 = 0.00107422
+  uint16_t reading = analogRead(BATTERY_VOLTAGE_PIN); //TODO: use average value
+  float voltage = reading * 0.00107422;
+  if(voltage <= LOW_VOLTAGE_THRESHOLD){
+    //TODO:
+  }
+}
+
+void radioOutput() {
+  uint32_t before = millis();
+  radio.write(&controlData, sizeof(ControlData));
+  uint32_t after = millis();
+  if(after - before > 10){
+    //TODO: once radio stuck, it will not revived by itself, intervention required.
+    Serial.print("Radio Slow! took: ");   Serial.println(after - before);
+  }
+}
+
+void ppmOutput() {
+  ppmEncoder.setChannel(2, controlData.Throttle);
+  ppmEncoder.setChannel(3, controlData.Yaw);
+  ppmEncoder.setChannel(1, controlData.Pitch);
+  ppmEncoder.setChannel(0, controlData.Roll);
+  ppmEncoder.setChannel(4, controlData.Aux1);
+  ppmEncoder.setChannel(5, controlData.Aux2);
+  ppmEncoder.setChannel(6, controlData.Aux3);
+  ppmEncoder.setChannel(7, controlData.Aux4);
+}
+
+void srOutput() {
+  shift.batchWriteBegin();
+  shift.writeBit(RIGHT_LED_SR_BIT, controlData.Roll > 1510);
+  shift.writeBit(LEFT_LED_SR_BIT, controlData.Roll < 1490);
+  shift.writeBit(TOP_LED_SR_BIT, controlData.Pitch > 1510);
+  shift.writeBit(BOTTOM_LED_SR_BIT, controlData.Pitch < 1490);
+  
+  shift.batchWriteEnd();
+}
+
+void reportPerformance() {
+#ifdef PERFORMANCE
+  Serial.print("Relay: ");      Serial.print(relayCount);       Serial.print("    ");
+  Serial.print("MPU: ");        Serial.print(mpuCount);         Serial.print("    ");
+  Serial.print("Controller: "); Serial.print(controllerCount);  Serial.print("    ");
+  Serial.print("Radio: ");      Serial.print(radioCount);       Serial.print("    ");
+  Serial.print("Loop: ");       Serial.print(loopCount);        Serial.print("    ");
+  Serial.println("");
+#endif
+  relayCount = 0;
+  mpuCount = 0;
+  controllerCount = 0;
+  radioCount = 0;
+  loopCount = 0;
+}
+
+void sort(int *a, int n) {
+  for (int i = 1; i < n; ++i) {
+    int j = a[i];
+    int k;
+    for (k = i - 1; (k >= 0) && (j < a[k]); k--)
+    {
+      a[k + 1] = a[k];
+    }
+    a[k + 1] = j;
+  }
+}
+
+void printArray(int *a, int n) {
+  for (int i = 0; i < n; i++)
+  {
+    Serial.print(a[i], DEC);
+    Serial.print(' ');
+  }
+  Serial.println();
+}
