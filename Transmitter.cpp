@@ -1,8 +1,7 @@
 #include <Wire.h>
 #include <SPI.h>
-#include <nRF24L01.h>
 #include <RF24.h>
-#include <Shifty.h>
+#include <FastLED.h>
 #include "printf.h"
 #include "ppm.h"
 #include "PPMEncoder.h"
@@ -16,7 +15,7 @@
 RF24 radio(NRF_CE_PIN, NRF_CSN_PIN);
 MPU6050 mpu;
 ControlData controlData;
-Shifty shift;
+CRGB leds[LED_COUNT];
 
 uint16_t relayCount = 0;
 uint16_t mpuCount = 0;
@@ -32,6 +31,8 @@ const uint16_t controllerDataFetchInterval = 5000; //200hz
 uint32_t previousControllerDataFetchMicros = 0;
 const uint16_t radioSendInterval = 2000; //500hz
 uint32_t previousRadioSendMicros = 0;
+const uint16_t ledRefreshInterval = 10000; //100hz
+uint32_t previousLedRefreshMicros = 0;
 const uint32_t performanceReportInterval = 1000000; //1hz
 uint32_t previousPerformanceReportMicros = 0;
 const uint32_t voltageCheckInterval = 1000000; //1hz
@@ -48,7 +49,7 @@ uint16_t packetSize;    // expected DMP packet size (default is 42 bytes)
 uint16_t fifoCount;     // count of all bytes currently in FIFO
 uint8_t fifoBuffer[64]; // FIFO storage buffer
 VectorFloat gravity;    // [x, y, z]            gravity vector
-Quaternion q;           // [w, x, y, z]         quaternion container
+Quaternion quaternion;           // [w, x, y, z]         quaternion container
 float euler[3];         // [psi, theta, phi]    Euler angle container
 float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
@@ -67,7 +68,7 @@ void setup() {
   initPins();
   initRadio();
   initData();
-  initShiftRegister();
+  initLed();
   initBatteryVoltage();
   if (digitalRead(RELAY_ENABLE_PIN) == 1) {
     initMpu();
@@ -109,13 +110,17 @@ void loop() {
     radioCount++;
   }
 
+  if (currentTime - previousLedRefreshMicros >= ledRefreshInterval) {
+    previousLedRefreshMicros = currentTime;
+    ledOutput();
+  }
+
   if (currentTime - previousVoltageCheckMicros >= voltageCheckInterval) {
     previousVoltageCheckMicros = currentTime;
     checkBatteryVoltage();
   }
   
   ppmOutput();
-  srOutput();
 
   if (currentTime - previousPerformanceReportMicros >= performanceReportInterval) {
     previousPerformanceReportMicros = currentTime;
@@ -133,9 +138,11 @@ void initPins() {
   pinMode(RELAY_ENABLE_PIN, INPUT_PULLUP);
   pinMode(BATTERY_VOLTAGE_PIN, INPUT);
   pinMode(AUX1_PIN, INPUT_PULLUP);
-  pinMode(AUX2_PIN, INPUT);
+  pinMode(AUX2_PIN, INPUT_PULLUP);
   pinMode(AUX3_PIN, INPUT);
   pinMode(AUX4_PIN, INPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
 #ifdef DEBUG
   Serial.println("Done");
 #endif
@@ -213,16 +220,20 @@ void initRadio() {
 #ifdef DEBUG
   Serial.print("Initialising Radio......");
 #endif
-  radio.begin();
+  while(!radio.begin()){
+    Serial.println(F("Radio device is not responding!"));
+    delay(1000);
+  }
   radio.setPALevel(RF24_PA_MAX);
   radio.setAutoAck(false);
   radio.setChannel(RADIO_CHANNEL);
   radio.setDataRate(RF24_250KBPS);
   radio.openWritingPipe(RADIO_PIPE);
-  radio.startListening();
   radio.stopListening();
+
+  printf_begin();
+  radio.printPrettyDetails();
 #ifdef DEBUG
-  radio.printDetails();
   Serial.println("");
 #endif
 }
@@ -259,12 +270,16 @@ void initPpmInput() {
 #endif
 }
 
-void initShiftRegister() {
+void initLed() {
 #ifdef DEBUG
-  Serial.print("Initialising shift register......");
+  Serial.print("Initialising LED......");
 #endif
-  shift.setBitCount(8);
-  shift.setPins(SR_DATA_PIN, SR_LATCH_PIN, SR_CLOCK_PIN);
+  FastLED.addLeds<LED_TYPE, LED_DATA_PIN, LED_COLOUR_ORDER>(leds, LED_COUNT);
+  FastLED.setBrightness(LED_BRIGHTNESS);
+  for(uint8_t i = 0; i < LED_COUNT; i++) {
+    leds[i] = CRGB::Black;
+  }
+  FastLED.show();
 #ifdef DEBUG
   Serial.println("Done");
 #endif
@@ -285,7 +300,7 @@ void getRelayData() {
   controlData.Aux2      = ppm.read_channel(6);
   controlData.Aux3      = ppm.read_channel(7);
   controlData.Aux4      = ppm.read_channel(8);
-#ifdef DEBUG
+#ifdef PRINT_OUTPUT
   Serial.print("THR: ");  Serial.print(controlData.Throttle);   Serial.print("  ");
   Serial.print("YAW: ");  Serial.print(controlData.Yaw);        Serial.print("  ");
   Serial.print("PIT: ");  Serial.print(controlData.Pitch);      Serial.print("  ");
@@ -318,7 +333,7 @@ void getControllerData() {
   //  controlData.Aux3      = 1500;
   //  controlData.Aux4      = 1600;
   //  controlData.Pitch     = 1700;
-#ifdef DEBUG
+#ifdef PRINT_OUTPUT
     Serial.print("Throttle: ");     Serial.print(controlData.Throttle);   Serial.print("    ");
     Serial.print("Yaw: ");          Serial.print(controlData.Yaw);        Serial.print("    ");
     Serial.print("Pitch: ");        Serial.print(controlData.Pitch);      Serial.print("    ");
@@ -371,9 +386,9 @@ void getMpuData() {
   // 180 / M_PI = 57.3
   controlData.Roll = mapMpuValue(ypr[1] * 57.3, -45, 0, 45, false);
   controlData.Pitch = mapMpuValue(ypr[2] * 57.3, -45, 0, 45, false);
-#ifdef DEBUG
-//  Serial.print("Pitch: ");        Serial.print(controlData.Pitch);      Serial.print("    ");
-//  Serial.print("Roll: ");         Serial.print(controlData.Roll);       Serial.print("    ");
+#ifdef PRINT_OUTPUT
+  Serial.print("Pitch: ");        Serial.print(controlData.Pitch);      Serial.print("    ");
+  Serial.print("Roll: ");         Serial.print(controlData.Roll);       Serial.print("    ");
 #endif
 }
 
@@ -383,9 +398,9 @@ void getMpuValue() {
 
   // read a packet from FIFO
   if (mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) {
-    mpu.dmpGetQuaternion(&q, fifoBuffer);
-    mpu.dmpGetGravity(&gravity, &q);
-    mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+    mpu.dmpGetQuaternion(&quaternion, fifoBuffer);
+    mpu.dmpGetGravity(&gravity, &quaternion);
+    mpu.dmpGetYawPitchRoll(ypr, &quaternion, &gravity);
   }
 #ifdef DEBUG
 //    Serial.print("ypr\t");
@@ -413,8 +428,11 @@ void checkBatteryVoltage() {
   }
 }
 
+uint32_t id = 0;
 void radioOutput() {
   uint32_t before = millis();
+  id++;
+  controlData.Token = id;
   radio.write(&controlData, sizeof(ControlData));
   uint32_t after = millis();
   if(after - before > 10){
@@ -434,14 +452,11 @@ void ppmOutput() {
   ppmEncoder.setChannel(7, controlData.Aux4);
 }
 
-void srOutput() {
-  shift.batchWriteBegin();
-  shift.writeBit(RIGHT_LED_SR_BIT, controlData.Roll > 1510);
-  shift.writeBit(LEFT_LED_SR_BIT, controlData.Roll < 1490);
-  shift.writeBit(TOP_LED_SR_BIT, controlData.Pitch > 1510);
-  shift.writeBit(BOTTOM_LED_SR_BIT, controlData.Pitch < 1490);
-  
-  shift.batchWriteEnd();
+void ledOutput() {
+  for(uint8_t i = 0; i < LED_COUNT; i++) {
+    leds[i] = CRGB::Green;
+  }
+  FastLED.show();
 }
 
 void reportPerformance() {

@@ -6,7 +6,7 @@ void initMpu();
 void initRadio();
 void initData();
 void initPpmInput();
-void initShiftRegister();
+void initLed();
 void initBatteryVoltage();
 void getRelayData();
 void getControllerData();
@@ -19,7 +19,7 @@ uint16_t mapMpuValue(float val, int8_t lower, int8_t middle, int8_t upper, bool 
 void checkBatteryVoltage();
 void radioOutput();
 void ppmOutput();
-void srOutput();
+void ledOutput();
 void reportPerformance();
 void sort(int *a, int n);
 void printArray(int *a, int n);
