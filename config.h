@@ -3,23 +3,23 @@
 
 //#define PRINT_OUTPUT
 #define DEBUG
-#define PERFORMANCE
+//#define PERFORMANCE
 #define CHANNEL_COUNT           8
 #define RADIO_PIPE              0xE8E8F0F0E1LL
-#define RADIO_CHANNEL           100
-#define RADIO_SECURITY_TOKEN    0
+#define RADIO_CHANNEL           125
+#define RADIO_SECURITY_TOKEN    998789
 #define MPU_ADDRESS             0x68
 #define JOYS_VAL_SAMPLE_COUNT   5
 #define JOYS_VAL_SAMPLE_ELIMI   1
-#define JOYS_CAL_SAMPLE_COUNT   100
-#define JOYS_CAL_SAMPLE_ELIMI   10
+#define JOYS_CAL_SAMPLE_COUNT   10
+#define JOYS_CAL_SAMPLE_ELIMI   2
 #define GYRO_CAL_SAMPLE_COUNT   100
 #define GYRO_LIMIT              200   //This limit motion control to 1500+-VALUE
 #define LOW_VOLTAGE_THRESHOLD   3.4
-#define LED_COUNT               5
+#define LED_COUNT               10
 #define LED_TYPE                WS2812B
 #define LED_COLOUR_ORDER        GRB
-#define LED_BRIGHTNESS          128
+#define LED_BRIGHTNESS          16
 
 // PIN Definitions
 #define MPU_INTERRUPT_PIN       0

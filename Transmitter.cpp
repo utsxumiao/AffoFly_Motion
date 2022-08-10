@@ -31,7 +31,7 @@ const uint16_t controllerDataFetchInterval = 5000; //200hz
 uint32_t previousControllerDataFetchMicros = 0;
 const uint16_t radioSendInterval = 2000; //500hz
 uint32_t previousRadioSendMicros = 0;
-const uint16_t ledRefreshInterval = 10000; //100hz
+const uint16_t ledRefreshInterval = 100000; //10hz
 uint32_t previousLedRefreshMicros = 0;
 const uint32_t performanceReportInterval = 1000000; //1hz
 uint32_t previousPerformanceReportMicros = 0;
@@ -40,6 +40,8 @@ uint32_t previousVoltageCheckMicros = 0;
 
 int16_t joystickOffsetThrottle = 0;
 int16_t joystickOffsetYaw = 0;
+
+bool voltageLow = false;
 
 //GYRO
 bool dmpReady = false;  // set true if DMP init was successful
@@ -59,7 +61,7 @@ void dmpDataReady() {
 
 void setup() {
   ADCSRA = (ADCSRA & 0xf8) | 0x04;  // set 16 times division to make analogRead faster
-#if defined(DEBUG) || defined(PERFORMANCE)
+#if defined(DEBUG) || defined(PERFORMANCE) || defined(PRINT_OUTPUT)
   Serial.begin(115200);
 #endif
 #ifdef DEBUG
@@ -69,13 +71,13 @@ void setup() {
   initRadio();
   initData();
   initLed();
-  initBatteryVoltage();
   if (digitalRead(RELAY_ENABLE_PIN) == 1) {
     initMpu();
     calibrateJoystick();
   } else {
     initPpmInput();
   }
+  //initBatteryVoltage();
   ppmEncoder.begin(PPM_OUTPUT_PIN);
 #ifdef DEBUG
   Serial.println("System ready");
@@ -224,7 +226,7 @@ void initRadio() {
     Serial.println(F("Radio device is not responding!"));
     delay(1000);
   }
-  radio.setPALevel(RF24_PA_MAX);
+  radio.setPALevel(RF24_PA_MIN);
   radio.setAutoAck(false);
   radio.setChannel(RADIO_CHANNEL);
   radio.setDataRate(RF24_250KBPS);
@@ -251,11 +253,7 @@ void initData() {
   controlData.Aux2 = 1000;
   controlData.Aux3 = 1000;
   controlData.Aux4 = 1000;
-
-  //  pitch_roll_angle_factor = 1 / (1000000 / controllerDataFetchInterval * 65.5);
-  //  yaw_angle_factor = pitch_roll_angle_factor * (3.14159 / 180);
 #ifdef DEBUG
-  //  Serial.print("pr:"); Serial.print(pitch_roll_angle_factor); Serial.print("   "); Serial.print("y:"); Serial.println(yaw_angle_factor);
   Serial.println("Done");
 #endif
 }
@@ -286,12 +284,13 @@ void initLed() {
 }
 
 void initBatteryVoltage() {
-  analogReference(INTERNAL);
+  // Should not use the Arduino internal 1.1v reference since it will mess up analogRead on other pins, also this project utilises a 5v step up module.
   // dummy reading to saturate analog pin so next reading can be correct
   analogRead(BATTERY_VOLTAGE_PIN); 
 }
 
 void getRelayData() {
+  controlData.Token     = RADIO_SECURITY_TOKEN;
   controlData.Throttle  = ppm.read_channel(3);
   controlData.Yaw       = ppm.read_channel(4);
   controlData.Pitch     = ppm.read_channel(2);
@@ -314,6 +313,7 @@ void getRelayData() {
 }
 
 void getControllerData() {
+  controlData.Token     = RADIO_SECURITY_TOKEN;
   int16_t throttle = getJoystickValue(JOYSTICK_THROTTLE_PIN, JOYS_VAL_SAMPLE_COUNT, JOYS_VAL_SAMPLE_ELIMI) - joystickOffsetThrottle;
   if (throttle < 0) {
     throttle = 0;
@@ -325,14 +325,7 @@ void getControllerData() {
   controlData.Aux2      = mapContollerValue(digitalRead(AUX2_PIN) * 1023, 0, 511, 1023, false);
   controlData.Aux3      = mapContollerValue(analogRead(AUX3_PIN), 0, 511, 1023, false);
   controlData.Aux4      = mapContollerValue(analogRead(AUX4_PIN), 0, 511, 1023, false);
-
-  //  controlData.Throttle  = 1100;
-  //  controlData.Yaw       = 1200;
-  //  controlData.Aux1      = 1300;
-  //  controlData.Aux2      = 1400;
-  //  controlData.Aux3      = 1500;
-  //  controlData.Aux4      = 1600;
-  //  controlData.Pitch     = 1700;
+  
 #ifdef PRINT_OUTPUT
     Serial.print("Throttle: ");     Serial.print(controlData.Throttle);   Serial.print("    ");
     Serial.print("Yaw: ");          Serial.print(controlData.Yaw);        Serial.print("    ");
@@ -354,6 +347,7 @@ uint16_t getJoystickValue(uint8_t pin, uint8_t sampleCount, uint8_t eliminator) 
     values[i] = analogRead(pin);
   }
   sort(values, sampleCount);
+  //printArray(values, sampleCount);
   for (uint8_t i = eliminator; i < sampleCount - eliminator; i++) {
     result += values[i];
   }
@@ -369,7 +363,7 @@ void calibrateJoystick() {
   joystickOffsetYaw = getJoystickValue(JOYSTICK_YAW_PIN, JOYS_CAL_SAMPLE_COUNT, JOYS_CAL_SAMPLE_ELIMI) - 511;
 #ifdef DEBUG
   Serial.print("Thr: ");  Serial.print(joystickOffsetThrottle);   Serial.print("  ");
-  Serial.print("Yaw: ");  Serial.print(joystickOffsetYaw);      Serial.print("  ");
+  Serial.print("Yaw: ");  Serial.print(joystickOffsetYaw);        Serial.print("  ");
   Serial.println("Done");
 #endif
 }
@@ -416,29 +410,32 @@ uint16_t mapMpuValue(float val, int8_t lower, int8_t middle, int8_t upper, bool 
   val = constrain(val, lower, upper);
   if (val < middle) val = map(val, lower, middle, 1500 - GYRO_LIMIT, 1500);
   else val = map(val, middle, upper, 1500, 1500 + GYRO_LIMIT);
-  return reverse ? 3000 - val : val;
+  uint16_t result = reverse ? 3000 - val : val;
+
+  //Patch code, should be removed after issue identified
+  if(result < 1500 - GYRO_LIMIT) {
+    result = 1500 - GYRO_LIMIT;
+  } else if(result > 1500 + GYRO_LIMIT) {
+    result = 1500 + GYRO_LIMIT;
+  }
+
+  return result;
 }
 
 void checkBatteryVoltage() {
-  // AREF(1.1v) / 1024 = 0.00107422
   uint16_t reading = analogRead(BATTERY_VOLTAGE_PIN); //TODO: use average value
-  float voltage = reading * 0.00107422;
-  if(voltage <= LOW_VOLTAGE_THRESHOLD){
-    //TODO:
-  }
+  float voltage = reading * 1023 / 5;
+  voltageLow = voltage < LOW_VOLTAGE_THRESHOLD;
 }
 
-uint32_t id = 0;
 void radioOutput() {
-  uint32_t before = millis();
-  id++;
-  controlData.Token = id;
+  //uint32_t before = millis();
   radio.write(&controlData, sizeof(ControlData));
-  uint32_t after = millis();
-  if(after - before > 10){
-    //TODO: once radio stuck, it will not revived by itself, intervention required.
-    Serial.print("Radio Slow! took: ");   Serial.println(after - before);
-  }
+//  uint32_t after = millis();
+//  if(after - before > 10){
+//    //TODO: once radio stuck, it will not revived by itself, intervention required.
+//    Serial.print("Radio Slow! took: ");   Serial.println(after - before);
+//  }
 }
 
 void ppmOutput() {
@@ -452,10 +449,18 @@ void ppmOutput() {
   ppmEncoder.setChannel(7, controlData.Aux4);
 }
 
+
+uint8_t rightLedIndex = 0;
+uint8_t backwardLedIndex = 6;
+uint8_t forwardLedIndex = 7;
+uint8_t leftLedIndex = 8;
+uint8_t middleLedIndex = 4;
 void ledOutput() {
-  for(uint8_t i = 0; i < LED_COUNT; i++) {
-    leds[i] = CRGB::Green;
-  }
+  leds[middleLedIndex] = voltageLow ? CRGB::Red : CRGB::Green;
+  leds[rightLedIndex] = controlData.Roll > 1510 ? CRGB::Green : CRGB::Black;
+  leds[leftLedIndex] = controlData.Roll < 1490 ? CRGB::Green : CRGB::Black;
+  leds[forwardLedIndex] = controlData.Pitch > 1510 ? CRGB::Green : CRGB::Black;
+  leds[backwardLedIndex] = controlData.Pitch < 1490 ? CRGB::Green : CRGB::Black;
   FastLED.show();
 }
 
