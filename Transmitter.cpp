@@ -406,25 +406,20 @@ void getMpuValue() {
 #endif
 }
 
-uint16_t mapMpuValue(float val, int8_t lower, int8_t middle, int8_t upper, bool reverse) {
-  val = constrain(val, lower, upper);
+uint16_t mapMpuValue(float val2, int8_t lower, int8_t middle, int8_t upper, bool reverse) {
+  float val = constrain(val2, lower, upper);
   if (val < middle) val = map(val, lower, middle, 1500 - GYRO_LIMIT, 1500);
   else val = map(val, middle, upper, 1500, 1500 + GYRO_LIMIT);
   uint16_t result = reverse ? 3000 - val : val;
-
-  //Patch code, should be removed after issue identified
-  if(result < 1500 - GYRO_LIMIT) {
-    result = 1500 - GYRO_LIMIT;
-  } else if(result > 1500 + GYRO_LIMIT) {
-    result = 1500 + GYRO_LIMIT;
-  }
-
   return result;
 }
 
 void checkBatteryVoltage() {
   uint16_t reading = analogRead(BATTERY_VOLTAGE_PIN); //TODO: use average value
-  float voltage = reading * 1023 / 5;
+  float voltage = reading * 5 / 1023;
+#ifdef DEBUG
+  Serial.print("Voltage: ");    Serial.println(voltage);
+#endif
   voltageLow = voltage < LOW_VOLTAGE_THRESHOLD;
 }
 
@@ -449,18 +444,14 @@ void ppmOutput() {
   ppmEncoder.setChannel(7, controlData.Aux4);
 }
 
-
-uint8_t rightLedIndex = 0;
-uint8_t backwardLedIndex = 6;
-uint8_t forwardLedIndex = 7;
-uint8_t leftLedIndex = 8;
-uint8_t middleLedIndex = 4;
 void ledOutput() {
-  leds[middleLedIndex] = voltageLow ? CRGB::Red : CRGB::Green;
-  leds[rightLedIndex] = controlData.Roll > 1510 ? CRGB::Green : CRGB::Black;
-  leds[leftLedIndex] = controlData.Roll < 1490 ? CRGB::Green : CRGB::Black;
-  leds[forwardLedIndex] = controlData.Pitch > 1510 ? CRGB::Green : CRGB::Black;
-  leds[backwardLedIndex] = controlData.Pitch < 1490 ? CRGB::Green : CRGB::Black;
+  //TODO: use colour temperature to reflect value
+  leds[LED_MIDDLE_INDEX]  = voltageLow ? CRGB::Red : CRGB::Green;
+  
+  leds[LED_RIGHT_INDEX]   = controlData.Roll > 1500 + LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
+  leds[LED_LEFT_INDEX]    = controlData.Roll < 1500 - LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
+  leds[LED_TOP_INDEX]     = controlData.Pitch > 1500 + LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
+  leds[LED_BOTTOM_INDEX]  = controlData.Pitch < 1500 - LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
   FastLED.show();
 }
 

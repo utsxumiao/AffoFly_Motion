@@ -2,8 +2,8 @@
 #define CONFIG_H_
 
 //#define PRINT_OUTPUT
-#define DEBUG
-//#define PERFORMANCE
+//#define DEBUG
+#define PERFORMANCE
 #define CHANNEL_COUNT           8
 #define RADIO_PIPE              0xE8E8F0F0E1LL
 #define RADIO_CHANNEL           125
@@ -20,6 +20,12 @@
 #define LED_TYPE                WS2812B
 #define LED_COLOUR_ORDER        GRB
 #define LED_BRIGHTNESS          16
+#define LED_RIGHT_INDEX         0
+#define LED_LEFT_INDEX          8
+#define LED_TOP_INDEX           7
+#define LED_BOTTOM_INDEX        6
+#define LED_MIDDLE_INDEX        4
+#define LED_GYRO_THRESHOLD      10
 
 // PIN Definitions
 #define MPU_INTERRUPT_PIN       0
