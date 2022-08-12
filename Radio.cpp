@@ -3,13 +3,14 @@
 #include "config.h"
 #include <SPI.h>
 #include <RF24.h>
-#include "NRF2401L.h"
+#include "AffoFly_Motion.h"
+#include "Radio.h"
 
-uint16_t NRF2401L_PACKET_COUNT = 0;
+uint16_t RADIO_PACKET_COUNT = 0;
 
 RF24 radio(NRF_CE_PIN, NRF_CSN_PIN);
 
-void NRF2401L_init() {
+void Radio_init() {
 #ifdef DEBUG
   Serial.print("Initialising Radio......");
 #endif
@@ -30,10 +31,10 @@ void NRF2401L_init() {
 #endif
 }
 
-void NRF2401L_output(ControlData *data) {
+void Radio_output() {
   //uint32_t before = millis();
-  radio.write(&data, sizeof(ControlData));
-  NRF2401L_PACKET_COUNT++;
+  radio.write(&RC_DATA, sizeof(ControlData));
+  RADIO_PACKET_COUNT++;
 //  uint32_t after = millis();
 //  if(after - before > 10){
 //    //TODO: once radio stuck, it will not revived by itself, intervention required.

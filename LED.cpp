@@ -1,14 +1,14 @@
 #include "Arduino.h"
 #include "types.h"
 #include "config.h"
-#include <Wire.h>
 #include <FastLED.h>
 #include "Battery.h"
-#include "WS2812B.h"
+#include "AffoFly_Motion.h"
+#include "LED.h"
 
 CRGB leds[LED_COUNT];
 
-void WS2812B_init() {
+void LED_init() {
 #ifdef DEBUG
     Serial.print("Initialising LED......");
 #endif
@@ -23,13 +23,13 @@ void WS2812B_init() {
 #endif
 }
 
-void WS2812B_refresh(ControlData *data) {
+void LED_refresh() {
     //TODO: use colour temperature to reflect value
     leds[LED_MIDDLE_INDEX]  = BATTERY_VOLTAGE_LOW ? CRGB::Red : CRGB::Green;
 
-    leds[LED_RIGHT_INDEX]   = data->Roll > 1500 + LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
-    leds[LED_LEFT_INDEX]    = data->Roll < 1500 - LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
-    leds[LED_TOP_INDEX]     = data->Pitch > 1500 + LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
-    leds[LED_BOTTOM_INDEX]  = data->Pitch < 1500 - LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
+    leds[LED_RIGHT_INDEX]   = RC_DATA.Roll > 1500 + LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
+    leds[LED_LEFT_INDEX]    = RC_DATA.Roll < 1500 - LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
+    leds[LED_TOP_INDEX]     = RC_DATA.Pitch > 1500 + LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
+    leds[LED_BOTTOM_INDEX]  = RC_DATA.Pitch < 1500 - LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
     FastLED.show();
 }

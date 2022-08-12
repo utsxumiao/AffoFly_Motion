@@ -1,9 +1,9 @@
 #ifndef CONFIG_H_
 #define CONFIG_H_
 
-//#define PRINT_OUTPUT
+#define PRINT_OUTPUT
 #define DEBUG
-#define PERFORMANCE
+//#define PERFORMANCE
 #define CHANNEL_COUNT           8
 #define RADIO_PIPE              0xE8E8F0F0E1LL
 #define RADIO_CHANNEL           125
