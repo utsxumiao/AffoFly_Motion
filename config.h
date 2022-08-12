@@ -2,7 +2,7 @@
 #define CONFIG_H_
 
 //#define PRINT_OUTPUT
-//#define DEBUG
+#define DEBUG
 #define PERFORMANCE
 #define CHANNEL_COUNT           8
 #define RADIO_PIPE              0xE8E8F0F0E1LL

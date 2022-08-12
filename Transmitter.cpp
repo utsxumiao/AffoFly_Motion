@@ -1,7 +1,4 @@
-#include <Wire.h>
 #include <SPI.h>
-#include <RF24.h>
-#include <FastLED.h>
 #include "printf.h"
 #include "ppm.h"
 #include "PPMEncoder.h"
@@ -9,18 +6,17 @@
 #include "MPU6050_6Axis_MotionApps20.h"
 #include "types.h"
 #include "config.h"
+#include "NRF2401L.h"
+#include "Battery.h"
+#include "WS2812B.h"
 #include "Transmitter.h"
 
-
-RF24 radio(NRF_CE_PIN, NRF_CSN_PIN);
 MPU6050 mpu;
 ControlData controlData;
-CRGB leds[LED_COUNT];
 
 uint16_t relayCount = 0;
 uint16_t mpuCount = 0;
 uint16_t controllerCount = 0;
-uint16_t radioCount = 0;
 uint16_t loopCount = 0;
 
 const uint16_t relayDataFetchInterval = 2000; //500hz
@@ -31,7 +27,7 @@ const uint16_t controllerDataFetchInterval = 5000; //200hz
 uint32_t previousControllerDataFetchMicros = 0;
 const uint16_t radioSendInterval = 2000; //500hz
 uint32_t previousRadioSendMicros = 0;
-const uint16_t ledRefreshInterval = 100000; //10hz
+const uint32_t ledRefreshInterval = 100000; //10hz
 uint32_t previousLedRefreshMicros = 0;
 const uint32_t performanceReportInterval = 1000000; //1hz
 uint32_t previousPerformanceReportMicros = 0;
@@ -68,9 +64,10 @@ void setup() {
   Serial.println("System started");
 #endif
   initPins();
-  initRadio();
+  NRF2401L_init();
   initData();
-  initLed();
+  WS2812B_init();
+  Battery_init();
   if (digitalRead(RELAY_ENABLE_PIN) == 1) {
     initMpu();
     calibrateJoystick();
@@ -108,18 +105,17 @@ void loop() {
   
   if (currentTime - previousRadioSendMicros >= radioSendInterval) {
     previousRadioSendMicros = currentTime;
-    radioOutput();
-    radioCount++;
+    NRF2401L_output(&controlData);
   }
 
   if (currentTime - previousLedRefreshMicros >= ledRefreshInterval) {
     previousLedRefreshMicros = currentTime;
-    ledOutput();
+    WS2812B_refresh(&controlData);
   }
 
   if (currentTime - previousVoltageCheckMicros >= voltageCheckInterval) {
     previousVoltageCheckMicros = currentTime;
-    checkBatteryVoltage();
+    Battery_read();
   }
   
   ppmOutput();
@@ -218,28 +214,6 @@ void initMpu() {
 #endif
 }
 
-void initRadio() {
-#ifdef DEBUG
-  Serial.print("Initialising Radio......");
-#endif
-  while(!radio.begin()){
-    Serial.println(F("Radio device is not responding!"));
-    delay(1000);
-  }
-  radio.setPALevel(RF24_PA_MIN);
-  radio.setAutoAck(false);
-  radio.setChannel(RADIO_CHANNEL);
-  radio.setDataRate(RF24_250KBPS);
-  radio.openWritingPipe(RADIO_PIPE);
-  radio.stopListening();
-
-  printf_begin();
-  radio.printPrettyDetails();
-#ifdef DEBUG
-  Serial.println("");
-#endif
-}
-
 void initData() {
 #ifdef DEBUG
   Serial.print("Initialising system data......");
@@ -266,27 +240,6 @@ void initPpmInput() {
 #ifdef DEBUG
   Serial.println("Done");
 #endif
-}
-
-void initLed() {
-#ifdef DEBUG
-  Serial.print("Initialising LED......");
-#endif
-  FastLED.addLeds<LED_TYPE, LED_DATA_PIN, LED_COLOUR_ORDER>(leds, LED_COUNT);
-  FastLED.setBrightness(LED_BRIGHTNESS);
-  for(uint8_t i = 0; i < LED_COUNT; i++) {
-    leds[i] = CRGB::Black;
-  }
-  FastLED.show();
-#ifdef DEBUG
-  Serial.println("Done");
-#endif
-}
-
-void initBatteryVoltage() {
-  // Should not use the Arduino internal 1.1v reference since it will mess up analogRead on other pins, also this project utilises a 5v step up module.
-  // dummy reading to saturate analog pin so next reading can be correct
-  analogRead(BATTERY_VOLTAGE_PIN); 
 }
 
 void getRelayData() {
@@ -414,25 +367,6 @@ uint16_t mapMpuValue(float val2, int8_t lower, int8_t middle, int8_t upper, bool
   return result;
 }
 
-void checkBatteryVoltage() {
-  uint16_t reading = analogRead(BATTERY_VOLTAGE_PIN); //TODO: use average value
-  float voltage = reading * 5 / 1023;
-#ifdef DEBUG
-  Serial.print("Voltage: ");    Serial.println(voltage);
-#endif
-  voltageLow = voltage < LOW_VOLTAGE_THRESHOLD;
-}
-
-void radioOutput() {
-  //uint32_t before = millis();
-  radio.write(&controlData, sizeof(ControlData));
-//  uint32_t after = millis();
-//  if(after - before > 10){
-//    //TODO: once radio stuck, it will not revived by itself, intervention required.
-//    Serial.print("Radio Slow! took: ");   Serial.println(after - before);
-//  }
-}
-
 void ppmOutput() {
   ppmEncoder.setChannel(2, controlData.Throttle);
   ppmEncoder.setChannel(3, controlData.Yaw);
@@ -444,30 +378,20 @@ void ppmOutput() {
   ppmEncoder.setChannel(7, controlData.Aux4);
 }
 
-void ledOutput() {
-  //TODO: use colour temperature to reflect value
-  leds[LED_MIDDLE_INDEX]  = voltageLow ? CRGB::Red : CRGB::Green;
-  
-  leds[LED_RIGHT_INDEX]   = controlData.Roll > 1500 + LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
-  leds[LED_LEFT_INDEX]    = controlData.Roll < 1500 - LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
-  leds[LED_TOP_INDEX]     = controlData.Pitch > 1500 + LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
-  leds[LED_BOTTOM_INDEX]  = controlData.Pitch < 1500 - LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
-  FastLED.show();
-}
-
 void reportPerformance() {
 #ifdef PERFORMANCE
   Serial.print("Relay: ");      Serial.print(relayCount);       Serial.print("    ");
   Serial.print("MPU: ");        Serial.print(mpuCount);         Serial.print("    ");
   Serial.print("Controller: "); Serial.print(controllerCount);  Serial.print("    ");
-  Serial.print("Radio: ");      Serial.print(radioCount);       Serial.print("    ");
+  Serial.print("Radio: ");      Serial.print(NRF2401L_PACKET_COUNT);       Serial.print("    ");
   Serial.print("Loop: ");       Serial.print(loopCount);        Serial.print("    ");
+  Serial.print("Battery: ");    Serial.print(BATTERY_VOLTAGE);  Serial.print("    ");
   Serial.println("");
 #endif
   relayCount = 0;
   mpuCount = 0;
   controllerCount = 0;
-  radioCount = 0;
+  NRF2401L_PACKET_COUNT = 0;
   loopCount = 0;
 }
 
