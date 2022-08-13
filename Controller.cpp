@@ -22,19 +22,26 @@ void Controller_calibrate() {
 }
 
 void Controller_read() {
-    int16_t throttle = getJoystickValue(JOYSTICK_THROTTLE_PIN, JOYS_VAL_SAMPLE_COUNT, JOYS_VAL_SAMPLE_ELIMI);
-    uint16_t yaw = getJoystickValue(JOYSTICK_YAW_PIN, JOYS_VAL_SAMPLE_COUNT, JOYS_VAL_SAMPLE_ELIMI);
-    throttle = mapContollerValue(throttle - JOYSTICK_THROTTLE_OFFSET, 0, 511, 1023, false);
+    int16_t throttle = getJoystickValue(JOYSTICK_THROTTLE_PIN, JOYS_VAL_SAMPLE_COUNT, JOYS_VAL_SAMPLE_ELIMI) - JOYSTICK_THROTTLE_OFFSET;
+    throttle = mapContollerValue(throttle, 0, 511, 1023, false);
     RC_DATA.Throttle  = throttle < 1000 ? 1000 : throttle;
-    RC_DATA.Yaw       = mapContollerValue(yaw - JOYSTICK_YAW_OFFSET, 0, 511, 1023, true);
-    RC_DATA.Aux1      = mapContollerValue(digitalRead(AUX1_PIN) * 1023, 0, 511, 1023, false);
-    RC_DATA.Aux2      = mapContollerValue(digitalRead(AUX2_PIN) * 1023, 0, 511, 1023, false);
-    RC_DATA.Aux3      = mapContollerValue(analogRead(AUX3_PIN), 0, 511, 1023, false);
-    RC_DATA.Aux4      = mapContollerValue(analogRead(AUX4_PIN), 0, 511, 1023, false);
+    
+    uint16_t yaw = getJoystickValue(JOYSTICK_YAW_PIN, JOYS_VAL_SAMPLE_COUNT, JOYS_VAL_SAMPLE_ELIMI) - JOYSTICK_YAW_OFFSET;
+    if(yaw > 511 + YAW_DEADBAND) {
+      RC_DATA.Yaw = map(yaw, 511 + YAW_DEADBAND, 1023, 1500, 1500 + YAW_LIMIT);
+    } else if (yaw < 511 - YAW_DEADBAND) {
+      RC_DATA.Yaw = map(yaw, 0, 511 - YAW_DEADBAND, 1500 - YAW_LIMIT, 1500);
+    } else {
+      RC_DATA.Yaw =  1500;
+    }
+    
+    RC_DATA.Aux1 = mapContollerValue(digitalRead(AUX1_PIN) * 1023, 0, 511, 1023, true);
+    RC_DATA.Aux2 = mapContollerValue(digitalRead(AUX2_PIN) * 1023, 0, 511, 1023, true);
+    RC_DATA.Aux3 = mapContollerValue(digitalRead(AUX3_PIN) * 1023, 0, 511, 1023, true);
+    RC_DATA.Aux4 = mapContollerValue(digitalRead(AUX4_PIN) * 1023, 0, 511, 1023, true);
+    
     CONTROLLER_READ_COUNT++;
 #ifdef PRINT_OUTPUT
-    Serial.print("Throttle Offset: ");     Serial.print(JOYSTICK_THROTTLE_OFFSET);   Serial.print("    ");
-    Serial.print("Yaw Offset: ");          Serial.print(JOYSTICK_YAW_OFFSET);        Serial.print("    ");
     Serial.print("Throttle: ");     Serial.print(RC_DATA.Throttle);   Serial.print("    ");
     Serial.print("Yaw: ");          Serial.print(RC_DATA.Yaw);        Serial.print("    ");
     Serial.print("Aux1: ");         Serial.print(RC_DATA.Aux1);       Serial.print("    ");

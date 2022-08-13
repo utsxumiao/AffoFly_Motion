@@ -106,8 +106,8 @@ void pinInit() {
   pinMode(BATTERY_VOLTAGE_PIN, INPUT);
   pinMode(AUX1_PIN, INPUT_PULLUP);
   pinMode(AUX2_PIN, INPUT_PULLUP);
-  pinMode(AUX3_PIN, INPUT);
-  pinMode(AUX4_PIN, INPUT);
+  pinMode(AUX3_PIN, INPUT_PULLUP);
+  pinMode(AUX4_PIN, INPUT_PULLUP);
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
 #ifdef DEBUG
