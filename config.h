@@ -9,7 +9,7 @@
 #define RADIO_CHANNEL           125
 #define RADIO_SECURITY_TOKEN    998789
 #define MPU_ADDRESS             0x68
-#define JOYS_VAL_SAMPLE_COUNT   5
+#define JOYS_VAL_SAMPLE_COUNT   5 
 #define JOYS_VAL_SAMPLE_ELIMI   1
 #define JOYS_CAL_SAMPLE_COUNT   10
 #define JOYS_CAL_SAMPLE_ELIMI   2
@@ -22,10 +22,10 @@
 #define LED_TYPE                WS2812B
 #define LED_COLOUR_ORDER        GRB
 #define LED_BRIGHTNESS          16
-#define LED_RIGHT_INDEX         0
-#define LED_LEFT_INDEX          8
-#define LED_TOP_INDEX           7
-#define LED_BOTTOM_INDEX        6
+#define LED_RIGHT_INDEX         3
+#define LED_LEFT_INDEX          1
+#define LED_TOP_INDEX           0
+#define LED_BOTTOM_INDEX        2
 #define LED_MIDDLE_INDEX        4
 #define LED_GYRO_THRESHOLD      10
 

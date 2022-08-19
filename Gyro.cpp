@@ -125,8 +125,8 @@ void Gyro_init(){
 void Gyro_read(){
     getGyroValue();
     // 180 / M_PI = 57.3
-    RC_DATA.Roll = mapGyroValue(ypr[1] * 57.3, -45, 0, 45, false);
-    RC_DATA.Pitch = mapGyroValue(ypr[2] * 57.3, -45, 0, 45, false);
+    RC_DATA.Roll = mapGyroValue(ypr[1] * 57.3, -45, 0, 45, true);
+    RC_DATA.Pitch = mapGyroValue(ypr[2] * 57.3, -45, 0, 45, true);
 #ifdef PRINT_OUTPUT
     Serial.print("Pitch: ");        Serial.print(RC_DATA.Pitch);      Serial.print("    ");
     Serial.print("Roll: ");         Serial.print(RC_DATA.Roll);       Serial.print("    ");

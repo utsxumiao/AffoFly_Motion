@@ -23,17 +23,19 @@ void Controller_calibrate() {
 
 void Controller_read() {
     int16_t throttle = getJoystickValue(JOYSTICK_THROTTLE_PIN, JOYS_VAL_SAMPLE_COUNT, JOYS_VAL_SAMPLE_ELIMI) - JOYSTICK_THROTTLE_OFFSET;
-    throttle = mapContollerValue(throttle, 0, 511, 1023, false);
-    RC_DATA.Throttle  = throttle < 1000 ? 1000 : throttle;
-    
-    uint16_t yaw = getJoystickValue(JOYSTICK_YAW_PIN, JOYS_VAL_SAMPLE_COUNT, JOYS_VAL_SAMPLE_ELIMI) - JOYSTICK_YAW_OFFSET;
+    throttle = constrain(throttle, 0, 1023);
+    RC_DATA.Throttle = mapContollerValue(throttle, 0, 511, 1023, false);
+
+    int16_t yaw = getJoystickValue(JOYSTICK_YAW_PIN, JOYS_VAL_SAMPLE_COUNT, JOYS_VAL_SAMPLE_ELIMI) - JOYSTICK_YAW_OFFSET;
+    yaw = constrain(yaw, 0, 1023);
     if(yaw > 511 + YAW_DEADBAND) {
-      RC_DATA.Yaw = map(yaw, 511 + YAW_DEADBAND, 1023, 1500, 1500 + YAW_LIMIT);
+      yaw = map(yaw, 511 + YAW_DEADBAND, 1023, 1500, 1500 + YAW_LIMIT);
     } else if (yaw < 511 - YAW_DEADBAND) {
-      RC_DATA.Yaw = map(yaw, 0, 511 - YAW_DEADBAND, 1500 - YAW_LIMIT, 1500);
+      yaw = map(yaw, 0, 511 - YAW_DEADBAND, 1500 - YAW_LIMIT, 1500);
     } else {
-      RC_DATA.Yaw =  1500;
+      yaw =  1500;
     }
+    RC_DATA.Yaw = yaw; //3000 - yaw if reversed
     
     RC_DATA.Aux1 = mapContollerValue(digitalRead(AUX1_PIN) * 1023, 0, 511, 1023, true);
     RC_DATA.Aux2 = mapContollerValue(digitalRead(AUX2_PIN) * 1023, 0, 511, 1023, true);
