@@ -1,6 +1,6 @@
 # AffoFly_Motion
 
-## Hardware
+## Parts List
  - Arduino Pro Mini 5V 16MHZ
  - GY-521 (MPU6050)
  - WS2182B 5V LED x5
