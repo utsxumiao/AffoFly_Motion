@@ -37,10 +37,12 @@ void setup() {
   Serial.println("System started");
 #endif
   pinInit();
+  LED_init();
+  LED_systemStart();
   dataInit();
   Radio_init();
-  LED_init();
   Battery_init();
+  LED_calibration();
   if (digitalRead(RELAY_ENABLE_PIN) == 1) {
     Gyro_init();
     Controller_calibrate();
@@ -48,6 +50,7 @@ void setup() {
     Signal_input_init();
   }
   Signal_output_init();
+  LED_systemReady();
 #ifdef DEBUG
   Serial.println("System ready");
 #endif

@@ -33,3 +33,29 @@ void LED_refresh() {
     leds[LED_BOTTOM_INDEX]  = RC_DATA.Pitch < 1500 - LED_GYRO_THRESHOLD ? CRGB::Green : CRGB::Black;
     FastLED.show();
 }
+
+void LED_systemStart() {
+  for(uint8_t i = 0; i < 5; i++) {
+    leds[i] = CRGB::Red;
+  }
+  FastLED.show();
+}
+
+void LED_systemReady() {
+  for(uint8_t i = 0; i < 5; i++) {
+    leds[i] = CRGB::Green;
+  }
+  FastLED.show();
+  delay(LED_START_DURATION);
+  for(uint8_t i = 0; i < 5; i++) {
+    leds[i] = CRGB::Black;
+  }
+  FastLED.show();
+}
+
+void LED_calibration() {
+  for(uint8_t i = 0; i < 5; i++) {
+    leds[i] = CRGB::Blue;
+  }
+  FastLED.show();
+}

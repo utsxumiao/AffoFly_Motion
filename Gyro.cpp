@@ -81,11 +81,11 @@ void Gyro_init(){
   if (devStatus == 0) {
     mpu.CalibrateAccel(6);
     mpu.CalibrateGyro(6);
-    mpu.PrintActiveOffsets();
-    // turn on the DMP, now that it's ready
 #ifdef DEBUG
+    mpu.PrintActiveOffsets();
     Serial.println(F("Enabling DMP..."));
 #endif
+    // turn on the DMP, now that it's ready
     mpu.setDMPEnabled(true);
 
     // enable Arduino interrupt detection

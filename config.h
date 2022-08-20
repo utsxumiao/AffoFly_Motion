@@ -28,6 +28,7 @@
 #define LED_BOTTOM_INDEX        2
 #define LED_MIDDLE_INDEX        4
 #define LED_GYRO_THRESHOLD      10
+#define LED_START_DURATION      1000  //millis
 
 // PIN Definitions
 #define MPU_INTERRUPT_PIN       0
