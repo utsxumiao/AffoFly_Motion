@@ -36,9 +36,10 @@ void LED_refresh() {
 
 void LED_systemStart() {
   for(uint8_t i = 0; i < 5; i++) {
-    leds[i] = CRGB::Red;
+    leds[i] = CRGB::Orange;
   }
   FastLED.show();
+  delay(LED_START_DURATION);
 }
 
 void LED_systemReady() {

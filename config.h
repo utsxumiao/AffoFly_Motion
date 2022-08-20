@@ -2,8 +2,8 @@
 #define CONFIG_H_
 
 //#define PRINT_OUTPUT
-#define DEBUG
-#define PERFORMANCE
+//#define DEBUG
+//#define PERFORMANCE
 #define CHANNEL_COUNT           8
 #define RADIO_PIPE              0xE8E8F0F0E1LL
 #define RADIO_CHANNEL           125
@@ -14,7 +14,8 @@
 #define JOYS_CAL_SAMPLE_COUNT   10
 #define JOYS_CAL_SAMPLE_ELIMI   2
 #define GYRO_CAL_SAMPLE_COUNT   100
-#define GYRO_LIMIT              200   //This limit motion control to 1500+-VALUE
+#define GYRO_LIMIT              300   //This is maximum value of gyro limit, pin low for no limit (1000-2000) high for max limit(1300-1700)
+#define GYRO_DYNAMIC_RATE       false
 #define YAW_DEADBAND            50
 #define YAW_LIMIT               200
 #define LOW_VOLTAGE_THRESHOLD   3.4
@@ -46,6 +47,6 @@
 #define AUX3_PIN                A2
 #define AUX4_PIN                A3
 #define BATTERY_VOLTAGE_PIN     A6
-//#define AUX4_PIN                A7
+#define GYRO_RATE_PIN           A7
 
 #endif /* CONFIG_H_ */

@@ -47,9 +47,14 @@ void getGyroValue() {
 }
 
 uint16_t mapGyroValue(float val2, int8_t lower, int8_t middle, int8_t upper, bool reverse) {
+  uint16_t limit = GYRO_LIMIT;
+  if(GYRO_DYNAMIC_RATE){
+    uint16_t rate = analogRead(GYRO_RATE_PIN);
+    limit = map(rate, 0, 1023, 0, GYRO_LIMIT);
+  }
   float val = constrain(val2, lower, upper);
-  if (val < middle) val = map(val, lower, middle, 1500 - GYRO_LIMIT, 1500);
-  else val = map(val, middle, upper, 1500, 1500 + GYRO_LIMIT);
+  if (val < middle) val = map(val, lower, middle, 1000 + limit, 1500);
+  else val = map(val, middle, upper, 1500, 2000 - limit);
   uint16_t result = reverse ? 3000 - val : val;
   return result;
 }
