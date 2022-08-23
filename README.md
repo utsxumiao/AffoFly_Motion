@@ -18,3 +18,8 @@
  - Of course some wires, soldering wires and an enclouse at your design.
 
 If you are intend to only work on a breadboard with jumper wires for experiment or development, then the voltage regulator, voltage booster, battery and BMS is not really required. Instead, you will use a USB-TTL to program the Arduino and it normally comes with both 5V and 3.3V output, eg. FTDI or CH340 module.
+
+## Videos & Photos
+coming soon
+
+Will include 3D models and schematics as well.
